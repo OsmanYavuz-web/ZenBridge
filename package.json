@@ -1,0 +1,34 @@
+{
+  "name": "opencode-proxy",
+  "version": "1.0.0",
+  "description": "Universal OpenAI-compatible API Gateway for OpenCode free models",
+  "type": "module",
+  "main": "src/server.ts",
+  "bin": {
+    "zenbridge": "./bin/opencode-proxy.js",
+    "opencode-proxy": "./bin/opencode-proxy.js"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/server.ts",
+    "dev": "node --watch-path=./src --experimental-strip-types src/server.ts",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "keywords": [
+    "opencode",
+    "openai-proxy",
+    "chat-completions",
+    "ai",
+    "llm",
+    "free-models",
+    "typescript"
+  ],
+  "author": "Osman Yavuz <omnyvz.yazilim@gmail.com> (https://github.com/OsmanYavuz-web)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OsmanYavuz-web/ZenBridge.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
