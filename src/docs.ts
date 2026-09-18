@@ -98,6 +98,27 @@ export const OPENAPI_SPEC = {
             description: 'Optional OpenCode session ID to continue an existing conversation',
             schema: { type: 'string' },
           },
+          {
+            name: 'x-directory',
+            in: 'header',
+            required: false,
+            description: 'Target project working directory for OpenCode session & file context',
+            schema: { type: 'string', example: '/home/user/my-project' },
+          },
+          {
+            name: 'x-opencode-directory',
+            in: 'header',
+            required: false,
+            description: 'Alternative header for target project directory in OpenCode',
+            schema: { type: 'string', example: '/home/user/my-project' },
+          },
+          {
+            name: 'directory',
+            in: 'query',
+            required: false,
+            description: 'Target project working directory as query parameter',
+            schema: { type: 'string' },
+          },
         ],
         requestBody: {
           required: true,
@@ -108,6 +129,7 @@ export const OPENAPI_SPEC = {
                 required: ['messages'],
                 example: {
                   model: 'auto',
+                  directory: '/home/user/my-project',
                   messages: [
                     {
                       role: 'user',
@@ -126,6 +148,16 @@ export const OPENAPI_SPEC = {
                     type: 'string',
                     example: 'ses_123abc456',
                     description: 'Optional session ID to continue a previous conversation',
+                  },
+                  directory: {
+                    type: 'string',
+                    example: '/home/user/my-project',
+                    description: 'Target project working directory for OpenCode execution context',
+                  },
+                  workspace: {
+                    type: 'string',
+                    example: 'wrk_default',
+                    description: 'Optional OpenCode workspace identifier',
                   },
                   stream: {
                     type: 'boolean',

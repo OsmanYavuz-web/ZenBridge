@@ -13,11 +13,17 @@ describe('ZenBridge Tests', () => {
   const mockOpenCodePort = 4199;
   let proxyServer: ProxyServer;
   const proxyPort = 8199;
+  const recordedRequests: Array<{ method: string; pathname: string; searchParams: URLSearchParams }> = [];
 
   before(async () => {
     // Setup Mock OpenCode Server
     mockOpenCodeServer = createServer(async (req, res) => {
       const url = new URL(req.url || '/', `http://127.0.0.1:${mockOpenCodePort}`);
+      recordedRequests.push({
+        method: req.method || 'GET',
+        pathname: url.pathname,
+        searchParams: url.searchParams,
+      });
 
       if (req.method === 'GET' && url.pathname === '/config/providers') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -533,6 +539,90 @@ describe('ZenBridge Tests', () => {
       assert.strictEqual(res.status, 200);
       const json: any = await res.json();
       assert.strictEqual(json.object, 'list');
+    });
+  });
+
+  describe('Directory & Workspace Context Forwarding Tests', () => {
+    it('POST /v1/chat/completions with X-Directory header forwards ?directory= to OpenCode session & message', async () => {
+      recordedRequests.length = 0;
+      const targetDir = '/home/user/my-awesome-project';
+
+      const res = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Directory': targetDir,
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Explain this codebase' }],
+        }),
+      });
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.headers.get('x-directory'), targetDir);
+
+      const sessionReq = recordedRequests.find((r) => r.method === 'POST' && r.pathname === '/session');
+      assert.ok(sessionReq, 'OpenCode /session POST must be called');
+      assert.strictEqual(sessionReq.searchParams.get('directory'), targetDir);
+
+      const msgReq = recordedRequests.find((r) => r.method === 'POST' && r.pathname.includes('/message'));
+      assert.ok(msgReq, 'OpenCode message POST must be called');
+      assert.strictEqual(msgReq.searchParams.get('directory'), targetDir);
+    });
+
+    it('POST /v1/chat/completions with X-Opencode-Directory header forwards ?directory=', async () => {
+      recordedRequests.length = 0;
+      const targetDir = '/wsl/projects/app';
+
+      const res = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Opencode-Directory': targetDir,
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Check files' }],
+        }),
+      });
+
+      assert.strictEqual(res.status, 200);
+      const sessionReq = recordedRequests.find((r) => r.method === 'POST' && r.pathname === '/session');
+      assert.ok(sessionReq);
+      assert.strictEqual(sessionReq.searchParams.get('directory'), targetDir);
+    });
+
+    it('POST /v1/chat/completions with directory & workspace in body forwards both query parameters', async () => {
+      recordedRequests.length = 0;
+      const targetDir = '/home/dev/app';
+      const targetWs = 'wrk_dev_123';
+
+      const res = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          directory: targetDir,
+          workspace: targetWs,
+          messages: [{ role: 'user', content: 'Run test' }],
+        }),
+      });
+
+      assert.strictEqual(res.status, 200);
+      const sessionReq = recordedRequests.find((r) => r.method === 'POST' && r.pathname === '/session');
+      assert.ok(sessionReq);
+      assert.strictEqual(sessionReq.searchParams.get('directory'), targetDir);
+      assert.strictEqual(sessionReq.searchParams.get('workspace'), targetWs);
+    });
+
+    it('GET /v1/sessions forwards directory & workspace query parameters', async () => {
+      recordedRequests.length = 0;
+      const targetDir = '/home/dev/app';
+
+      const res = await fetch(`http://127.0.0.1:${proxyPort}/v1/sessions?directory=${encodeURIComponent(targetDir)}`);
+      assert.strictEqual(res.status, 200);
+
+      const listReq = recordedRequests.find((r) => r.method === 'GET' && r.pathname === '/session');
+      assert.ok(listReq);
+      assert.strictEqual(listReq.searchParams.get('directory'), targetDir);
     });
   });
 });

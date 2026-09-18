@@ -37,9 +37,17 @@ export class ChatService {
       ? OpenAITransformer.formatLatestMessage(request.messages)
       : OpenAITransformer.formatMessagesToPrompt(request.messages);
 
+    const directory = request.directory?.trim();
+    const workspace = request.workspace?.trim();
+
     const sessionId = isExistingSession
       ? request.session_id!.trim()
-      : await this.openCodeService.createSession(this.deriveSessionTitle(request.messages));
+      : await this.openCodeService.createSession(
+          this.deriveSessionTitle(request.messages),
+          undefined,
+          directory,
+          workspace
+        );
 
     const response = await this.openCodeService.sendMessage(
       sessionId,
@@ -47,7 +55,9 @@ export class ChatService {
       parts,
       modelInfo,
       systemPrompt,
-      variant
+      variant,
+      directory,
+      workspace
     );
 
     const rawJson = await response.json();
@@ -72,6 +82,8 @@ export class ChatService {
     const isExistingSession = Boolean(request.session_id && request.session_id.trim());
     const includeReasoning = Boolean(request.include_reasoning || request.show_reasoning || request.reasoning);
     const variant = request.variant || request.reasoning_effort;
+    const directory = request.directory?.trim();
+    const workspace = request.workspace?.trim();
 
     const { parts, systemPrompt } = isExistingSession
       ? OpenAITransformer.formatLatestMessage(request.messages)
@@ -80,7 +92,12 @@ export class ChatService {
     const completionId = `chatcmpl-${randomUUID()}`;
     const sessionId = isExistingSession
       ? request.session_id!.trim()
-      : await this.openCodeService.createSession(this.deriveSessionTitle(request.messages));
+      : await this.openCodeService.createSession(
+          this.deriveSessionTitle(request.messages),
+          undefined,
+          directory,
+          workspace
+        );
 
     // Yield initial role chunk immediately per OpenAI streaming specification
     yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, undefined, 'assistant');
@@ -91,7 +108,9 @@ export class ChatService {
       parts,
       modelInfo,
       systemPrompt,
-      variant
+      variant,
+      directory,
+      workspace
     );
 
     const contentType = response.headers?.get('content-type') || '';

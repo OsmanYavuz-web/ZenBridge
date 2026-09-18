@@ -28,6 +28,8 @@ export interface ChatCompletionRequest {
   frequency_penalty?: number;
   presence_penalty?: number;
   session_id?: string;
+  directory?: string;
+  workspace?: string;
 }
 
 export interface ChatCompletionChoice {

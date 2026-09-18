@@ -37,8 +37,14 @@ export class ProxyServer {
     this.router.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, x-session-id');
-      res.setHeader('Access-Control-Expose-Headers', 'x-session-id');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, x-api-key, x-session-id, x-directory, x-opencode-directory, x-workspace, x-opencode-workspace'
+      );
+      res.setHeader(
+        'Access-Control-Expose-Headers',
+        'x-session-id, x-directory, x-opencode-directory'
+      );
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -177,6 +183,27 @@ export class ProxyServer {
       this.router.get('/v1/docs', handleDocs);
     }
 
+    // Helper to extract query parameters from URLSearchParams or object
+    const getParam = (req: any, param: string): string | undefined => {
+      if (!req.query) return undefined;
+      if (typeof req.query.get === 'function') {
+        const val = req.query.get(param);
+        return val ? String(val).trim() : undefined;
+      }
+      const val = req.query[param];
+      return val ? String(val).trim() : undefined;
+    };
+
+    const getDirectory = (req: any): string | undefined => {
+      const val = req.headers['x-directory'] || req.headers['x-opencode-directory'] || getParam(req, 'directory');
+      return val ? String(val).trim() : undefined;
+    };
+
+    const getWorkspace = (req: any): string | undefined => {
+      const val = req.headers['x-workspace'] || req.headers['x-opencode-workspace'] || getParam(req, 'workspace');
+      return val ? String(val).trim() : undefined;
+    };
+
     // List Models (OpenAI Format)
     const handleModels = async (_req: any, res: any) => {
       const models = await this.modelService.getModels();
@@ -201,16 +228,20 @@ export class ProxyServer {
     this.router.get('/models', handleModels);
 
     // Session Management Endpoints
-    this.router.get('/v1/sessions', async (_req: any, res: any) => {
-      const sessions = await this.openCodeService.listSessions();
+    this.router.get('/v1/sessions', async (req: any, res: any) => {
+      const directory = getDirectory(req);
+      const workspace = getWorkspace(req);
+      const sessions = await this.openCodeService.listSessions(directory, workspace);
       Router.sendJson(res, 200, {
         object: 'list',
         data: sessions,
       });
     });
 
-    const handleDeleteAllSessions = async (_req: any, res: any) => {
-      const result = await this.openCodeService.deleteAllSessions();
+    const handleDeleteAllSessions = async (req: any, res: any) => {
+      const directory = getDirectory(req);
+      const workspace = getWorkspace(req);
+      const result = await this.openCodeService.deleteAllSessions(directory, workspace);
       Router.sendJson(res, 200, result);
     };
     this.router.delete('/v1/sessions', handleDeleteAllSessions);
@@ -225,7 +256,9 @@ export class ProxyServer {
         return;
       }
 
-      const session = await this.openCodeService.getSession(sessionId);
+      const directory = getDirectory(req);
+      const workspace = getWorkspace(req);
+      const session = await this.openCodeService.getSession(sessionId, directory, workspace);
       if (!session) {
         Router.sendJson(res, 404, {
           error: { message: `Session '${sessionId}' not found`, type: 'invalid_request_error', code: 404 },
@@ -245,7 +278,9 @@ export class ProxyServer {
         return;
       }
 
-      const success = await this.openCodeService.deleteSession(sessionId);
+      const directory = getDirectory(req);
+      const workspace = getWorkspace(req);
+      const success = await this.openCodeService.deleteSession(sessionId, directory, workspace);
       Router.sendJson(res, 200, {
         deleted: success,
         id: sessionId,
@@ -274,6 +309,22 @@ export class ProxyServer {
         body.session_id = String(req.headers['x-session-id']).trim();
       }
 
+      // Check header/query fallback for directory if omitted in body
+      if (!body.directory) {
+        const dir = getDirectory(req);
+        if (dir) {
+          body.directory = dir;
+        }
+      }
+
+      // Check header/query fallback for workspace if omitted in body
+      if (!body.workspace) {
+        const ws = getWorkspace(req);
+        if (ws) {
+          body.workspace = ws;
+        }
+      }
+
       if (stream) {
         const streamGenerator = this.chatService.streamChat(body);
         await Router.streamSSE(res, streamGenerator);
@@ -281,6 +332,9 @@ export class ProxyServer {
         const result = await this.chatService.completeChat(body);
         if (result.session_id) {
           res.setHeader('x-session-id', result.session_id);
+        }
+        if (body.directory) {
+          res.setHeader('x-directory', body.directory);
         }
         Router.sendJson(res, 200, result);
       }

@@ -72,16 +72,36 @@ export class OpenCodeService {
   }
 
   /**
+   * Helper to build request URL with optional query parameters (directory, workspace)
+   */
+  buildUrl(path: string, params?: { directory?: string; workspace?: string }): string {
+    const url = new URL(`${this.baseUrl}${path}`);
+    if (params?.directory && params.directory.trim()) {
+      url.searchParams.set('directory', params.directory.trim());
+    }
+    if (params?.workspace && params.workspace.trim()) {
+      url.searchParams.set('workspace', params.workspace.trim());
+    }
+    return url.toString();
+  }
+
+  /**
    * Create a session in OpenCode
    */
-  async createSession(title: string = 'proxy-request', agent?: string): Promise<string> {
+  async createSession(
+    title: string = 'proxy-request',
+    agent?: string,
+    directory?: string,
+    workspace?: string
+  ): Promise<string> {
     let res: Response;
     const body: Record<string, unknown> = { title: title.slice(0, 80) };
     if (agent && agent.trim()) {
       body.agent = agent.trim();
     }
+    const targetUrl = this.buildUrl('/session', { directory, workspace });
     try {
-      res = await fetch(`${this.baseUrl}/session`, {
+      res = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -118,7 +138,9 @@ export class OpenCodeService {
     parts: Array<{ type: string; text: string }>,
     metadata?: ModelMetadata,
     systemPrompt?: string,
-    variant?: string
+    variant?: string,
+    directory?: string,
+    workspace?: string
   ): Promise<Response> {
     const modelInfo = metadata || getFallbackModelInfo(modelId);
     const payload: Record<string, unknown> = {
@@ -137,9 +159,11 @@ export class OpenCodeService {
       payload.variant = variant.trim();
     }
 
+    const targetUrl = this.buildUrl(`/session/${encodeURIComponent(sessionId)}/message`, { directory, workspace });
+
     let res: Response;
     try {
-      res = await fetch(`${this.baseUrl}/session/${encodeURIComponent(sessionId)}/message`, {
+      res = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -164,9 +188,10 @@ export class OpenCodeService {
   /**
    * List all sessions from OpenCode
    */
-  async listSessions(): Promise<any[]> {
+  async listSessions(directory?: string, workspace?: string): Promise<any[]> {
     try {
-      const res = await fetch(`${this.baseUrl}/session`, {
+      const targetUrl = this.buildUrl('/session', { directory, workspace });
+      const res = await fetch(targetUrl, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -182,9 +207,10 @@ export class OpenCodeService {
   /**
    * Get session details by ID from OpenCode
    */
-  async getSession(sessionId: string): Promise<any | null> {
+  async getSession(sessionId: string, directory?: string, workspace?: string): Promise<any | null> {
     try {
-      const res = await fetch(`${this.baseUrl}/session/${encodeURIComponent(sessionId)}`, {
+      const targetUrl = this.buildUrl(`/session/${encodeURIComponent(sessionId)}`, { directory, workspace });
+      const res = await fetch(targetUrl, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -199,9 +225,10 @@ export class OpenCodeService {
   /**
    * Delete a session by ID in OpenCode
    */
-  async deleteSession(sessionId: string): Promise<boolean> {
+  async deleteSession(sessionId: string, directory?: string, workspace?: string): Promise<boolean> {
     try {
-      const res = await fetch(`${this.baseUrl}/session/${encodeURIComponent(sessionId)}`, {
+      const targetUrl = this.buildUrl(`/session/${encodeURIComponent(sessionId)}`, { directory, workspace });
+      const res = await fetch(targetUrl, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -215,8 +242,8 @@ export class OpenCodeService {
   /**
    * Delete all sessions in OpenCode
    */
-  async deleteAllSessions(): Promise<{ deleted: boolean; count: number; total: number; ids: string[] }> {
-    const sessions = await this.listSessions();
+  async deleteAllSessions(directory?: string, workspace?: string): Promise<{ deleted: boolean; count: number; total: number; ids: string[] }> {
+    const sessions = await this.listSessions(directory, workspace);
     if (!Array.isArray(sessions) || sessions.length === 0) {
       return { deleted: true, count: 0, total: 0, ids: [] };
     }
