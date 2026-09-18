@@ -3,6 +3,7 @@ import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
   ModelMetadata,
+  PermissionRule,
 } from '../types/index.ts';
 import { OpenCodeService } from './opencode.service.ts';
 import { ModelService } from './model.service.ts';
@@ -39,14 +40,16 @@ export class ChatService {
 
     const directory = request.directory?.trim();
     const workspace = request.workspace?.trim();
+    const permissions = this.resolvePermissions(request);
 
     const sessionId = isExistingSession
       ? request.session_id!.trim()
       : await this.openCodeService.createSession(
           this.deriveSessionTitle(request.messages),
-          undefined,
+          request.agent?.trim(),
           directory,
-          workspace
+          workspace,
+          permissions
         );
 
     const response = await this.openCodeService.sendMessage(
@@ -57,7 +60,8 @@ export class ChatService {
       systemPrompt,
       variant,
       directory,
-      workspace
+      workspace,
+      request.agent?.trim()
     );
 
     const rawJson = await response.json();
@@ -84,6 +88,7 @@ export class ChatService {
     const variant = request.variant || request.reasoning_effort;
     const directory = request.directory?.trim();
     const workspace = request.workspace?.trim();
+    const permissions = this.resolvePermissions(request);
 
     const { parts, systemPrompt } = isExistingSession
       ? OpenAITransformer.formatLatestMessage(request.messages)
@@ -94,9 +99,10 @@ export class ChatService {
       ? request.session_id!.trim()
       : await this.openCodeService.createSession(
           this.deriveSessionTitle(request.messages),
-          undefined,
+          request.agent?.trim(),
           directory,
-          workspace
+          workspace,
+          permissions
         );
 
     // Yield initial role chunk immediately per OpenAI streaming specification
@@ -110,7 +116,8 @@ export class ChatService {
       systemPrompt,
       variant,
       directory,
-      workspace
+      workspace,
+      request.agent?.trim()
     );
 
     const contentType = response.headers?.get('content-type') || '';
@@ -204,6 +211,22 @@ export class ChatService {
 
     yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, 'stop', sessionId);
     yield 'data: [DONE]\n\n';
+  }
+
+  private resolvePermissions(request: ChatCompletionRequest): PermissionRule[] | undefined {
+    if (request.permission && Array.isArray(request.permission) && request.permission.length > 0) {
+      return request.permission;
+    }
+    if (request.auto_approve || request.auto_approve_permissions || request.allow_all_permissions) {
+      return [
+        {
+          permission: '*',
+          pattern: '*',
+          action: 'allow',
+        },
+      ];
+    }
+    return undefined;
   }
 
   private deriveSessionTitle(messages: ChatCompletionRequest['messages']): string {

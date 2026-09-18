@@ -175,7 +175,11 @@ When sending requests to `/v1/chat/completions`, you can configure the following
 | **`stream`** | `boolean` | No | `false` | Enables Server-Sent Events (SSE) streaming (`text/event-stream`) for real-time typewriter output. |
 | **`session_id`** | `string` | No | `""` | OpenCode session ID. Pass this to continue an existing multi-turn chat session. *(Can also be sent via `x-session-id` header)*. |
 | **`include_reasoning`** | `boolean` | No | `false` | When `true`, returns the model's Chain-of-Thought thinking process in the `reasoning_content` field (OpenAI / DeepSeek format). |
-| **`reasoning_effort`** | `string` | No | `undefined` | Depth of model reasoning (`"low"`, `"medium"`, `"high"`). |
+| **`agent`** | `string` | No | `"build"` | OpenCode agent mode (`"build"`: full code execution/editing, `"plan"`: read-only planning mode). |
+| **`directory`** | `string` | No | `undefined` | Target project working directory for OpenCode execution context (e.g. `/home/user/project`). *(Can also be sent via `x-directory` HTTP header)*. |
+| **`workspace`** | `string` | No | `undefined` | Target OpenCode workspace identifier. |
+| **`auto_approve`** | `boolean` | No | `false` | When `true`, automatically auto-approves all OpenCode permission requests (file writes/reads, shell commands, tools). *(Can also be sent via `x-auto-approve: true` header)*. |
+| **`permission`** | `array` | No | `undefined` | Custom granular OpenCode permission rules (`[{"permission": "*", "pattern": "*", "action": "allow"}]`). |
 | **`temperature`** | `number` | No | `undefined` | Sampling temperature for randomness. |
 | **`max_tokens`** | `integer` | No | `undefined` | Maximum number of tokens to generate. |
 

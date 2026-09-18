@@ -169,10 +169,23 @@ export const OPENAPI_SPEC = {
                     example: false,
                     description: 'If true, include internal chain-of-thought in reasoning_content field',
                   },
-                  reasoning_effort: {
-                    type: 'string',
-                    enum: ['low', 'medium', 'high'],
-                    description: 'Depth / effort level of model reasoning process',
+                  auto_approve: {
+                    type: 'boolean',
+                    example: true,
+                    description: 'If true, automatically auto-approve all OpenCode permission requests (files, terminal, tools)',
+                  },
+                  permission: {
+                    type: 'array',
+                    description: 'Custom granular OpenCode permission rules (PermissionRuleset)',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        permission: { type: 'string', example: '*' },
+                        pattern: { type: 'string', example: '*' },
+                        action: { type: 'string', enum: ['allow', 'deny', 'ask'], example: 'allow' },
+                      },
+                      required: ['permission', 'pattern', 'action'],
+                    },
                   },
                   messages: {
                     type: 'array',

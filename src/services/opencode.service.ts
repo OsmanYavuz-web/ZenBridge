@@ -1,4 +1,4 @@
-import type { ModelMetadata, OpenCodeProviderResponse } from '../types/index.ts';
+import type { ModelMetadata, OpenCodeProviderResponse, PermissionRule } from '../types/index.ts';
 import { getFallbackModelInfo } from '../config.ts';
 
 export class OpenCodeService {
@@ -23,9 +23,8 @@ export class OpenCodeService {
       });
       clearTimeout(timeout);
       return { ok: res.ok, status: res.status };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { ok: false, error: msg };
+    } catch (err: any) {
+      return { ok: false, error: err.message };
     }
   }
 
@@ -92,12 +91,16 @@ export class OpenCodeService {
     title: string = 'proxy-request',
     agent?: string,
     directory?: string,
-    workspace?: string
+    workspace?: string,
+    permission?: PermissionRule[]
   ): Promise<string> {
     let res: Response;
     const body: Record<string, unknown> = { title: title.slice(0, 80) };
     if (agent && agent.trim()) {
       body.agent = agent.trim();
+    }
+    if (permission && Array.isArray(permission) && permission.length > 0) {
+      body.permission = permission;
     }
     const targetUrl = this.buildUrl('/session', { directory, workspace });
     try {
@@ -140,7 +143,8 @@ export class OpenCodeService {
     systemPrompt?: string,
     variant?: string,
     directory?: string,
-    workspace?: string
+    workspace?: string,
+    agent?: string
   ): Promise<Response> {
     const modelInfo = metadata || getFallbackModelInfo(modelId);
     const payload: Record<string, unknown> = {
@@ -150,6 +154,10 @@ export class OpenCodeService {
       },
       parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }],
     };
+
+    if (agent && agent.trim()) {
+      payload.agent = agent.trim();
+    }
 
     if (systemPrompt && systemPrompt.trim()) {
       payload.system = systemPrompt.trim();

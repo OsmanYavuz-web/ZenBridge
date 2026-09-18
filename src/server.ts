@@ -39,11 +39,11 @@ export class ProxyServer {
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
       res.setHeader(
         'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, x-api-key, x-session-id, x-directory, x-opencode-directory, x-workspace, x-opencode-workspace'
+        'Content-Type, Authorization, x-api-key, x-session-id, x-directory, x-opencode-directory, x-workspace, x-opencode-workspace, x-auto-approve, x-opencode-auto-approve, x-permission'
       );
       res.setHeader(
         'Access-Control-Expose-Headers',
-        'x-session-id, x-directory, x-opencode-directory'
+        'x-session-id, x-directory, x-opencode-directory, x-auto-approve'
       );
 
       if (req.method === 'OPTIONS') {
@@ -322,6 +322,14 @@ export class ProxyServer {
         const ws = getWorkspace(req);
         if (ws) {
           body.workspace = ws;
+        }
+      }
+
+      // Check header fallback for auto_approve if omitted in body
+      if (body.auto_approve === undefined && body.auto_approve_permissions === undefined && body.allow_all_permissions === undefined) {
+        const autoApproveHeader = req.headers['x-auto-approve'] || req.headers['x-opencode-auto-approve'];
+        if (autoApproveHeader === 'true' || autoApproveHeader === '1' || autoApproveHeader === true) {
+          body.auto_approve = true;
         }
       }
 

@@ -13,6 +13,12 @@ export interface OpenAIMessage {
   name?: string;
 }
 
+export interface PermissionRule {
+  permission: string;
+  pattern: string;
+  action: 'allow' | 'deny' | 'ask';
+}
+
 export interface ChatCompletionRequest {
   model?: string;
   messages: OpenAIMessage[];
@@ -30,6 +36,11 @@ export interface ChatCompletionRequest {
   session_id?: string;
   directory?: string;
   workspace?: string;
+  agent?: string;
+  auto_approve?: boolean;
+  auto_approve_permissions?: boolean;
+  allow_all_permissions?: boolean;
+  permission?: PermissionRule[];
 }
 
 export interface ChatCompletionChoice {

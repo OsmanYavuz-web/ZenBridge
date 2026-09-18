@@ -13,16 +13,34 @@ describe('ZenBridge Tests', () => {
   const mockOpenCodePort = 4199;
   let proxyServer: ProxyServer;
   const proxyPort = 8199;
-  const recordedRequests: Array<{ method: string; pathname: string; searchParams: URLSearchParams }> = [];
+  const recordedRequests: Array<{ method: string; pathname: string; searchParams: URLSearchParams; body?: any }> = [];
 
   before(async () => {
     // Setup Mock OpenCode Server
     mockOpenCodeServer = createServer(async (req, res) => {
       const url = new URL(req.url || '/', `http://127.0.0.1:${mockOpenCodePort}`);
+      let parsedBody: any = undefined;
+
+      if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+        }
+        const reqBody = Buffer.concat(chunks).toString('utf-8');
+        if (reqBody) {
+          try {
+            parsedBody = JSON.parse(reqBody);
+          } catch {
+            parsedBody = reqBody;
+          }
+        }
+      }
+
       recordedRequests.push({
         method: req.method || 'GET',
         pathname: url.pathname,
         searchParams: url.searchParams,
+        body: parsedBody,
       });
 
       if (req.method === 'GET' && url.pathname === '/config/providers') {
@@ -88,21 +106,16 @@ describe('ZenBridge Tests', () => {
       }
 
       if (req.method === 'POST' && url.pathname.startsWith('/session/ses_mock123/message')) {
-        let body = '';
-        req.on('data', (chunk) => (body += chunk));
-        req.on('end', () => {
-          const parsed = JSON.parse(body);
-          const modelId = parsed.model?.modelID || 'unknown';
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              parts: [
-                { type: 'reasoning', text: 'Step by step thought process' },
-                { type: 'text', text: `Response from ${modelId}` },
-              ],
-            })
-          );
-        });
+        const modelId = parsedBody?.model?.modelID || 'unknown';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            parts: [
+              { type: 'reasoning', text: 'Step by step thought process' },
+              { type: 'text', text: `Response from ${modelId}` },
+            ],
+          })
+        );
         return;
       }
 
@@ -623,6 +636,78 @@ describe('ZenBridge Tests', () => {
       const listReq = recordedRequests.find((r) => r.method === 'GET' && r.pathname === '/session');
       assert.ok(listReq);
       assert.strictEqual(listReq.searchParams.get('directory'), targetDir);
+    });
+
+    it('POST /v1/chat/completions with auto_approve: true in body forwards permission allow rules to OpenCode', async () => {
+      recordedRequests.length = 0;
+
+      const res = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auto_approve: true,
+          messages: [{ role: 'user', content: 'Run command' }],
+        }),
+      });
+
+      assert.strictEqual(res.status, 200);
+      const sessionReq = recordedRequests.find((r) => r.method === 'POST' && r.pathname === '/session');
+      assert.ok(sessionReq);
+      assert.deepStrictEqual(sessionReq.body?.permission, [
+        {
+          permission: '*',
+          pattern: '*',
+          action: 'allow',
+        },
+      ]);
+    });
+
+    it('POST /v1/chat/completions with custom permission rules in body forwards them', async () => {
+      recordedRequests.length = 0;
+      const customPermissions = [
+        { permission: 'file:read', pattern: '*', action: 'allow' as const },
+        { permission: 'shell:run', pattern: 'npm *', action: 'allow' as const },
+      ];
+
+      const res = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          permission: customPermissions,
+          messages: [{ role: 'user', content: 'Read package.json' }],
+        }),
+      });
+
+      assert.strictEqual(res.status, 200);
+      const sessionReq = recordedRequests.find((r) => r.method === 'POST' && r.pathname === '/session');
+      assert.ok(sessionReq);
+      assert.deepStrictEqual(sessionReq.body?.permission, customPermissions);
+    });
+
+    it('POST /v1/chat/completions with X-Auto-Approve header enables auto approval', async () => {
+      recordedRequests.length = 0;
+
+      const res = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auto-Approve': 'true',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Write code' }],
+        }),
+      });
+
+      assert.strictEqual(res.status, 200);
+      const sessionReq = recordedRequests.find((r) => r.method === 'POST' && r.pathname === '/session');
+      assert.ok(sessionReq);
+      assert.deepStrictEqual(sessionReq.body?.permission, [
+        {
+          permission: '*',
+          pattern: '*',
+          action: 'allow',
+        },
+      ]);
     });
   });
 });

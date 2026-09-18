@@ -175,7 +175,11 @@ curl -X DELETE http://127.0.0.1:8080/v1/sessions
 | **`stream`** | `boolean` | Hayır | `false` | `true` yapıldığında Server-Sent Events (SSE) ile daktilo gibi canlı kelime akışı başlatır. |
 | **`session_id`** | `string` | Hayır | `""` | OpenCode oturum ID'si. Mevcut bir konuşma oturumuna devam etmek için kullanılır. *(İstenirse `x-session-id` HTTP başlığında da gönderilebilir)*. |
 | **`include_reasoning`** | `boolean` | Hayır | `false` | `true` yapıldığında modelin iç düşünme / akıl yürütme (Chain-of-Thought) sürecini `reasoning_content` alanında döndürür (OpenAI / DeepSeek formatı). |
-| **`reasoning_effort`** | `string` | Hayır | `undefined` | Akıl yürütme derinliği seviyesi (`"low"`, `"medium"`, `"high"`). |
+| **`agent`** | `string` | Hayır | `"build"` | OpenCode agent modu (`"build"`: tam geliştirme ve kod düzenleme modu, `"plan"`: yalnızca okuma/planlama modu). |
+| **`directory`** | `string` | Hayır | `undefined` | Oturumun ve dosya bağlamının çalışacağı hedef proje dizini (örn. `/home/user/project`). *(İstenirse `x-directory` HTTP başlığında da gönderilebilir)*. |
+| **`workspace`** | `string` | Hayır | `undefined` | İlgili OpenCode workspace tanımlayıcısı. |
+| **`auto_approve`** | `boolean` | Hayır | `false` | `true` yapıldığında tüm OpenCode izin isteklerini (dosya yazma/okuma, terminal komutları vb.) otomatik onaylar (`allow`). *(İstenirse `x-auto-approve: true` başlığıyla da gönderilebilir)*. |
+| **`permission`** | `array` | Hayır | `undefined` | Özel izin kuralları listesi (`[{"permission": "*", "pattern": "*", "action": "allow"}]`). |
 | **`temperature`** | `number` | Hayır | `undefined` | Yanıtın yaratıcılık ve rastgelelik derecesi. |
 | **`max_tokens`** | `integer` | Hayır | `undefined` | Üretilecek maksimum token adedi. |
 
