@@ -42,15 +42,36 @@ Virtually every AI application, IDE extension, and framework (**Cursor, Continue
 
 ---
 
-## 📋 Dynamic Free Models
+## 📋 Dynamic Free Models & Smart Load Balancer
 
-ZenBridge dynamically pulls all active models from your running OpenCode instance.
+ZenBridge dynamically pulls all active models from your running OpenCode instance and monitors their quota/health status in real time.
 
-* **List Active Models:** Check live available models on your server anytime:
+* **List Active Models & Health Status:** Check live available models along with latency and quota health anytime:
   ```bash
   curl http://127.0.0.1:8080/v1/models
   ```
-* **Auto / Load-Balanced:** When `model` is set to `"auto"` (or omitted), ZenBridge automatically load-balances requests across all active free models.
+  Example JSON Response:
+  ```json
+  {
+    "object": "list",
+    "data": [
+      {
+        "id": "nemotron-3.5-lightning-free",
+        "object": "model",
+        "owned_by": "opencode",
+        "context_window": 128000,
+        "status": "healthy",
+        "healthy": true,
+        "latency_ms": 1420,
+        "last_checked": "2026-09-18T12:25:00.000Z"
+      }
+    ]
+  }
+  ```
+* **Smart Auto Load-Balancing & Failover:** When `model` is set to `"auto"` (or omitted):
+  1. ZenBridge conducts background health checks every 60 seconds against upstream OpenCode models.
+  2. It automatically routes incoming requests to the **healthiest model with the lowest latency**.
+  3. If a free model hits quota exhaustion or rate limits (`rate_limited` / `degraded`), ZenBridge immediately isolates it and fails over to an alternative healthy model transparently.
 * **Specific Models:** You can specify any model ID returned from `/v1/models` in your requests.
 
 ---

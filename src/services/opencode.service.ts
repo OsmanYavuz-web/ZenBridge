@@ -144,7 +144,8 @@ export class OpenCodeService {
     variant?: string,
     directory?: string,
     workspace?: string,
-    agent?: string
+    agent?: string,
+    signal?: AbortSignal
   ): Promise<Response> {
     const modelInfo = metadata || getFallbackModelInfo(modelId);
     const payload: Record<string, unknown> = {
@@ -175,8 +176,12 @@ export class OpenCodeService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal,
       });
     } catch (err: any) {
+      if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+        throw new Error(`Model '${modelInfo.id}' timed out after waiting for upstream OpenCode response.`);
+      }
       if (err.code === 'ECONNREFUSED' || err.cause?.code === 'ECONNREFUSED') {
         throw new Error(
           `Lost connection to OpenCode server at ${this.baseUrl}. Please ensure 'opencode serve --port 4096' is running.`

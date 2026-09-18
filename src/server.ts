@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { ProxyConfig, ChatCompletionRequest } from './types/index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 import { Router } from './core/router.ts';
@@ -204,7 +204,7 @@ export class ProxyServer {
       return val ? String(val).trim() : undefined;
     };
 
-    // List Models (OpenAI Format)
+    // List Models (OpenAI Format with Health & Quota info)
     const handleModels = async (_req: any, res: any) => {
       const models = await this.modelService.getModels();
       const modelsData = models.map((m) => ({
@@ -216,6 +216,10 @@ export class ProxyServer {
         root: m.id,
         parent: null,
         context_window: m.context_window || 64000,
+        status: m.health?.status || 'healthy',
+        healthy: m.health?.healthy !== false,
+        latency_ms: m.health?.latency_ms,
+        last_checked: m.health?.last_checked,
       }));
 
       Router.sendJson(res, 200, {
@@ -353,10 +357,11 @@ export class ProxyServer {
   }
 
   async start(port = this.config.port, host = this.config.host): Promise<any> {
-    this.server = createServer((req, res) => this.router.handle(req, res));
+    this.server = createServer((req: IncomingMessage, res: ServerResponse) => this.router.handle(req, res));
 
     return new Promise((resolve, reject) => {
       this.server!.listen(port, host, () => {
+        this.modelService.startHealthCheck(60000);
         if (this.config.disablePublicUi) {
           console.log(`🚀 ZenBridge: http://${host}:${port} (Upstream: ${this.config.opencodeBaseUrl})`);
         } else {
@@ -375,6 +380,7 @@ export class ProxyServer {
   }
 
   async stop(): Promise<void> {
+    this.modelService.stopHealthCheck();
     return new Promise((resolve) => {
       if (this.server) {
         this.server.close(() => resolve());

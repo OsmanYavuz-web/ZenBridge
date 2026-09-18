@@ -70,10 +70,14 @@ export const OPENAPI_SPEC = {
                       items: {
                         type: 'object',
                         properties: {
-                          id: { type: 'string', example: 'model-id' },
+                          id: { type: 'string', example: 'nemotron-3.5-lightning-free' },
                           object: { type: 'string', example: 'model' },
                           owned_by: { type: 'string', example: 'opencode' },
                           context_window: { type: 'integer', example: 128000 },
+                          status: { type: 'string', enum: ['healthy', 'degraded', 'rate_limited'], example: 'healthy' },
+                          healthy: { type: 'boolean', example: true },
+                          latency_ms: { type: 'integer', example: 1420 },
+                          last_checked: { type: 'string', example: '2026-09-18T12:25:00.000Z' },
                         },
                       },
                     },

@@ -42,15 +42,36 @@ Dünyadaki popüler yapay zeka araçları, IDE eklentileri ve kütüphaneleri (*
 
 ---
 
-## 📋 Dinamik Ücretsiz Modeller
+## 📋 Dinamik Ücretsiz Modeller & Akıllı Yük Dengeleyici
 
-ZenBridge, tüm aktif modelleri çalışan OpenCode sunucunuzdan dinamik olarak çeker.
+ZenBridge, tüm aktif modelleri çalışan OpenCode sunucunuzdan dinamik olarak çeker ve arka planda kota/sağlık durumlarını gerçek zamanlı olarak izler.
 
-* **Aktif Modelleri Listeleme:** Sunucunuzdaki anlık kullanılabilir modelleri görmek için:
+* **Aktif Modelleri ve Sağlık Durumunu Listeleme:** Sunucunuzdaki anlık kullanılabilir modelleri, gecikme sürelerini (latency) ve sağlık durumlarını görmek için:
   ```bash
   curl http://127.0.0.1:8080/v1/models
   ```
-* **Otomatik / Yük Dengeli:** Model alanına `"auto"` yazdığınızda (veya boş bıraktığınızda), istekleriniz aktif modeller arasında otomatik olarak dağıtılır.
+  Örnek JSON Yanıtı:
+  ```json
+  {
+    "object": "list",
+    "data": [
+      {
+        "id": "nemotron-3.5-lightning-free",
+        "object": "model",
+        "owned_by": "opencode",
+        "context_window": 128000,
+        "status": "healthy",
+        "healthy": true,
+        "latency_ms": 1420,
+        "last_checked": "2026-09-18T12:25:00.000Z"
+      }
+    ]
+  }
+  ```
+* **Akıllı Otomatik Yük Dengeleme & Hata Kurtarma (Failover):** Model alanına `"auto"` yazdığınızda (veya boş bıraktığınızda):
+  1. ZenBridge arka planda her 60 saniyede bir OpenCode modellerine hafif sağlık/kota yoklaması yapar.
+  2. İstekleri otomatik olarak **en sağlıklı ve en düşük gecikme süresine (latency) sahip modele** yönlendirir.
+  3. Bir model kota aşımına veya hız sınırına (`rate_limited` / `degraded`) takılırsa, ZenBridge bunu anında izole eder ve isteği otomatik olarak diğer sağlıklı bir modele devreder (failover).
 * **Özel Model Belirtme:** `/v1/models` çıktısında gördüğünüz herhangi bir model ID'sini doğrudan kullanabilirsiniz.
 
 ---

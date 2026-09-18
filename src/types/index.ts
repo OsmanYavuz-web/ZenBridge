@@ -88,6 +88,17 @@ export interface ChatCompletionChunk {
   choices: ChatCompletionChunkChoice[];
 }
 
+export type ModelHealthStatus = 'healthy' | 'degraded' | 'rate_limited' | 'unhealthy';
+
+export interface ModelHealthInfo {
+  status: ModelHealthStatus;
+  healthy: boolean;
+  latency_ms?: number;
+  last_checked: number;
+  consecutive_failures: number;
+  error_message?: string;
+}
+
 export interface ModelMetadata {
   id: string;
   name: string;
@@ -96,6 +107,7 @@ export interface ModelMetadata {
   cost?: number;
   context_window?: number;
   capabilities?: Record<string, unknown>;
+  health?: ModelHealthInfo;
 }
 
 export interface OpenCodeProviderResponse {

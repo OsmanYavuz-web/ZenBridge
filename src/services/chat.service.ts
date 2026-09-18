@@ -27,12 +27,21 @@ export class ChatService {
   /**
    * Non-streaming chat completion
    */
-  async completeChat(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+  /**
+   * Complete chat request (Non-Streaming) with smart health tracking and auto-failover
+   */
+  async completeChat(request: ChatCompletionRequest, retryAttempt = 0): Promise<ChatCompletionResponse> {
     const targetModel = request.model?.trim() || this.defaultModel;
     const modelInfo = await this.modelService.resolveModel(targetModel);
     const isExistingSession = Boolean(request.session_id && request.session_id.trim());
     const includeReasoning = Boolean(request.include_reasoning || request.show_reasoning || request.reasoning);
     const variant = request.variant || request.reasoning_effort;
+
+    // Pre-flight check: If a specific model was requested and is known to be rate-limited, fail fast
+    const isAuto = !request.model || request.model.trim().toLowerCase() === 'auto' || request.model.trim().toLowerCase() === 'random';
+    if (!isAuto && modelInfo.health && modelInfo.health.healthy === false && modelInfo.health.status === 'rate_limited') {
+      throw new Error(`Model '${modelInfo.id}' is currently rate-limited or quota exhausted upstream.`);
+    }
 
     const { parts, systemPrompt, promptText } = isExistingSession
       ? OpenAITransformer.formatLatestMessage(request.messages)
@@ -52,17 +61,29 @@ export class ChatService {
           permissions
         );
 
-    const response = await this.openCodeService.sendMessage(
-      sessionId,
-      modelInfo.id,
-      parts,
-      modelInfo,
-      systemPrompt,
-      variant,
-      directory,
-      workspace,
-      request.agent?.trim()
-    );
+    const startTime = Date.now();
+    let response: Response;
+    try {
+      response = await this.openCodeService.sendMessage(
+        sessionId,
+        modelInfo.id,
+        parts,
+        modelInfo,
+        systemPrompt,
+        variant,
+        directory,
+        workspace,
+        request.agent?.trim()
+      );
+      this.modelService.recordSuccess(modelInfo.id, Date.now() - startTime);
+    } catch (err: any) {
+      this.modelService.recordFailure(modelInfo.id, err.message);
+      const isAuto = !request.model || request.model.trim().toLowerCase() === 'auto' || request.model.trim().toLowerCase() === 'random';
+      if (isAuto && retryAttempt < 2) {
+        return this.completeChat(request, retryAttempt + 1);
+      }
+      throw err;
+    }
 
     const rawJson = await response.json();
     const { content, reasoningContent } = OpenAITransformer.extractResponsePayload(rawJson);
@@ -78,9 +99,9 @@ export class ChatService {
   }
 
   /**
-   * Streaming chat completion using async generator
+   * Streaming chat completion using async generator with smart health tracking
    */
-  async *streamChat(request: ChatCompletionRequest): AsyncGenerator<string, void, unknown> {
+  async *streamChat(request: ChatCompletionRequest, retryAttempt = 0): AsyncGenerator<string, void, unknown> {
     const targetModel = request.model?.trim() || this.defaultModel;
     const modelInfo = await this.modelService.resolveModel(targetModel);
     const isExistingSession = Boolean(request.session_id && request.session_id.trim());
@@ -89,6 +110,15 @@ export class ChatService {
     const directory = request.directory?.trim();
     const workspace = request.workspace?.trim();
     const permissions = this.resolvePermissions(request);
+
+    // Pre-flight check: If a specific model was requested and is known to be rate-limited, fail fast or warn
+    const isAuto = !request.model || request.model.trim().toLowerCase() === 'auto' || request.model.trim().toLowerCase() === 'random';
+    if (!isAuto && modelInfo.health && modelInfo.health.healthy === false && modelInfo.health.status === 'rate_limited') {
+      const errMsg = `Model '${modelInfo.id}' is currently rate-limited or quota exhausted upstream.`;
+      yield OpenAITransformer.formatStreamChunk(`\n[ZenBridge Error: ${errMsg}]`, modelInfo.id, `chatcmpl-${randomUUID()}`, 'stop');
+      yield 'data: [DONE]\n\n';
+      return;
+    }
 
     const { parts, systemPrompt } = isExistingSession
       ? OpenAITransformer.formatLatestMessage(request.messages)
@@ -108,17 +138,31 @@ export class ChatService {
     // Yield initial role chunk immediately per OpenAI streaming specification
     yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, undefined, 'assistant');
 
-    const response = await this.openCodeService.sendMessage(
-      sessionId,
-      modelInfo.id,
-      parts,
-      modelInfo,
-      systemPrompt,
-      variant,
-      directory,
-      workspace,
-      request.agent?.trim()
-    );
+    const startTime = Date.now();
+    let response: Response;
+    try {
+      response = await this.openCodeService.sendMessage(
+        sessionId,
+        modelInfo.id,
+        parts,
+        modelInfo,
+        systemPrompt,
+        variant,
+        directory,
+        workspace,
+        request.agent?.trim()
+      );
+      this.modelService.recordSuccess(modelInfo.id, Date.now() - startTime);
+    } catch (err: any) {
+      this.modelService.recordFailure(modelInfo.id, err.message);
+      if (isAuto && retryAttempt < 2) {
+        yield* this.streamChat(request, retryAttempt + 1);
+        return;
+      }
+      yield OpenAITransformer.formatStreamChunk(`\n[ZenBridge Error: Model '${modelInfo.id}' failed: ${err.message}]`, modelInfo.id, completionId, 'stop', sessionId);
+      yield 'data: [DONE]\n\n';
+      return;
+    }
 
     const contentType = response.headers?.get('content-type') || '';
     const isSSE = contentType.includes('text/event-stream');
@@ -179,8 +223,8 @@ export class ChatService {
             } catch { /* ignore malformed tail */ }
           }
         }
-      } catch {
-        // Reader threw
+      } catch (streamErr: any) {
+        this.modelService.recordFailure(modelInfo.id, streamErr.message);
       }
     } else {
       let rawJson: any;
