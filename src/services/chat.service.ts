@@ -37,11 +37,6 @@ export class ChatService {
     const includeReasoning = Boolean(request.include_reasoning || request.show_reasoning || request.reasoning);
     const variant = request.variant || request.reasoning_effort;
 
-    // Pre-flight check: If a specific model was requested and is known to be rate-limited, fail fast
-    const isAuto = !request.model || request.model.trim().toLowerCase() === 'auto' || request.model.trim().toLowerCase() === 'random';
-    if (!isAuto && modelInfo.health && modelInfo.health.healthy === false && modelInfo.health.status === 'rate_limited') {
-      throw new Error(`Model '${modelInfo.id}' is currently rate-limited or quota exhausted upstream.`);
-    }
 
     const { parts, systemPrompt, promptText } = isExistingSession
       ? OpenAITransformer.formatLatestMessage(request.messages)
@@ -110,15 +105,6 @@ export class ChatService {
     const directory = request.directory?.trim();
     const workspace = request.workspace?.trim();
     const permissions = this.resolvePermissions(request);
-
-    // Pre-flight check: If a specific model was requested and is known to be rate-limited, fail fast or warn
-    const isAuto = !request.model || request.model.trim().toLowerCase() === 'auto' || request.model.trim().toLowerCase() === 'random';
-    if (!isAuto && modelInfo.health && modelInfo.health.healthy === false && modelInfo.health.status === 'rate_limited') {
-      const errMsg = `Model '${modelInfo.id}' is currently rate-limited or quota exhausted upstream.`;
-      yield OpenAITransformer.formatStreamChunk(`\n[ZenBridge Error: ${errMsg}]`, modelInfo.id, `chatcmpl-${randomUUID()}`, 'stop');
-      yield 'data: [DONE]\n\n';
-      return;
-    }
 
     const { parts, systemPrompt } = isExistingSession
       ? OpenAITransformer.formatLatestMessage(request.messages)

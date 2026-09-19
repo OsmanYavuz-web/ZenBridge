@@ -361,7 +361,6 @@ export class ProxyServer {
 
     return new Promise((resolve, reject) => {
       this.server!.listen(port, host, () => {
-        this.modelService.startHealthCheck(60000);
         if (this.config.disablePublicUi) {
           console.log(`🚀 ZenBridge: http://${host}:${port} (Upstream: ${this.config.opencodeBaseUrl})`);
         } else {
@@ -380,7 +379,6 @@ export class ProxyServer {
   }
 
   async stop(): Promise<void> {
-    this.modelService.stopHealthCheck();
     return new Promise((resolve) => {
       if (this.server) {
         this.server.close(() => resolve());
