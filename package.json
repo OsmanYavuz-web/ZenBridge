@@ -11,6 +11,9 @@
   "scripts": {
     "start": "node --experimental-strip-types src/server.ts",
     "dev": "node --watch-path=./src --experimental-strip-types src/server.ts",
+    "opencode": "opencode serve --port 4096",
+    "start:all": "opencode serve --port 4096 & node --experimental-strip-types src/server.ts",
+    "dev:all": "opencode serve --port 4096 & node --watch-path=./src --experimental-strip-types src/server.ts",
     "test": "node --experimental-strip-types --test test/*.test.ts"
   },
   "keywords": [
