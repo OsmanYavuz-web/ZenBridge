@@ -1,4 +1,4 @@
-import type { ModelMetadata, OpenCodeProviderResponse, PermissionRule } from '../types/index.ts';
+import type { ModelMetadata, OpenCodeProviderResponse, PermissionRule, OpenCodePart } from '../types/index.ts';
 import { getFallbackModelInfo } from '../config.ts';
 
 export class OpenCodeService {
@@ -138,7 +138,7 @@ export class OpenCodeService {
   async sendMessage(
     sessionId: string,
     modelId: string,
-    parts: Array<{ type: string; text: string }>,
+    parts: OpenCodePart[] | Array<{ type: string; [key: string]: unknown }>,
     metadata?: ModelMetadata,
     systemPrompt?: string,
     variant?: string,

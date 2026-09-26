@@ -196,7 +196,80 @@ describe('ZenBridge Tests', () => {
         { role: 'user', content: 'Latest follow-up message' },
       ]);
       assert.strictEqual(res.promptText, 'Latest follow-up message');
-      assert.strictEqual(res.parts[0].text, 'Latest follow-up message');
+      assert.strictEqual((res.parts[0] as any).text, 'Latest follow-up message');
+    });
+
+    it('parses multimodal message with image_url and creates FilePartInput', () => {
+      const res = OpenAITransformer.formatMessagesToPrompt([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Analyze this screenshot' },
+            {
+              type: 'image_url',
+              image_url: {
+                url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+                filename: 'screenshot.png',
+              },
+            },
+          ],
+        },
+      ]);
+
+      assert.strictEqual(res.promptText, 'Analyze this screenshot');
+      assert.strictEqual(res.parts.length, 2);
+      assert.strictEqual(res.parts[0].type, 'text');
+      assert.strictEqual((res.parts[0] as any).text, 'Analyze this screenshot');
+      assert.strictEqual(res.parts[1].type, 'file');
+      assert.strictEqual((res.parts[1] as any).mime, 'image/png');
+      assert.strictEqual((res.parts[1] as any).filename, 'screenshot.png');
+      assert.ok((res.parts[1] as any).url.startsWith('data:image/png;base64,'));
+    });
+
+    it('parses multimodal message with document/pdf file and creates FilePartInput', () => {
+      const res = OpenAITransformer.formatMessagesToPrompt([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Summarize document' },
+            {
+              type: 'file',
+              url: 'https://example.com/report.pdf',
+              filename: 'report.pdf',
+            },
+          ],
+        },
+      ]);
+
+      assert.strictEqual(res.parts.length, 2);
+      assert.strictEqual(res.parts[0].type, 'text');
+      assert.strictEqual(res.parts[1].type, 'file');
+      assert.strictEqual((res.parts[1] as any).mime, 'application/pdf');
+      assert.strictEqual((res.parts[1] as any).filename, 'report.pdf');
+    });
+
+    it('parses multi-turn messages containing image attachments and preserves file parts', () => {
+      const res = OpenAITransformer.formatMessagesToPrompt([
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: 'Hi! How can I help?' },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Look at this photo' },
+            {
+              type: 'image_url',
+              image_url: {
+                url: 'https://example.com/photo.jpeg',
+              },
+            },
+          ],
+        },
+      ]);
+
+      assert.ok(res.promptText.includes('[Attached: image/jpeg]'));
+      const fileParts = res.parts.filter((p) => p.type === 'file');
+      assert.strictEqual(fileParts.length, 1);
+      assert.strictEqual((fileParts[0] as any).mime, 'image/jpeg');
     });
 
     it('ModelService resolves and caches models from /config/providers', async () => {
@@ -448,6 +521,46 @@ describe('ZenBridge Tests', () => {
       const text = await res.text();
       assert.ok(text.includes('data: '));
       assert.ok(text.includes('[DONE]'));
+    });
+
+    it('POST /v1/chat/completions forwards multimodal images and files as OpenCode FilePartInput', async () => {
+      recordedRequests.length = 0;
+      const res = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'quantum-v1-free',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'Describe what is in this image' },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+                    filename: 'pixel.png',
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      });
+
+      assert.strictEqual(res.status, 200);
+      const json: any = await res.json();
+      assert.ok(json.choices[0].message.content);
+
+      // Verify that OpenCode received parts array with text and file parts
+      const messageReq = recordedRequests.find((r) => r.method === 'POST' && r.pathname.includes('/message'));
+      assert.ok(messageReq);
+      assert.ok(Array.isArray(messageReq.body?.parts));
+      assert.strictEqual(messageReq.body.parts[0].type, 'text');
+      assert.strictEqual(messageReq.body.parts[0].text, 'Describe what is in this image');
+      assert.strictEqual(messageReq.body.parts[1].type, 'file');
+      assert.strictEqual(messageReq.body.parts[1].mime, 'image/png');
+      assert.strictEqual(messageReq.body.parts[1].filename, 'pixel.png');
     });
 
     it('POST /v1/chat/completions returns 400 for empty messages array', async () => {

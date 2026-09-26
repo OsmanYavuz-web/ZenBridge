@@ -7,6 +7,33 @@ declare global {
   var process: any;
 }
 
+export interface TextPartInput {
+  type: 'text';
+  text: string;
+}
+
+export interface FilePartInput {
+  type: 'file';
+  mime: string;
+  url: string;
+  filename?: string;
+  source?: Record<string, unknown>;
+}
+
+export interface AgentPartInput {
+  type: 'agent';
+  name: string;
+  source?: Record<string, unknown>;
+}
+
+export interface SubtaskPartInput {
+  type: 'subtask';
+  prompt: string;
+  description: string;
+}
+
+export type OpenCodePart = TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput;
+
 export interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | string;
   content: string | Array<{ type: string; text?: string; [key: string]: unknown }>;
