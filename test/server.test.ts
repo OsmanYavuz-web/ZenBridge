@@ -290,6 +290,56 @@ describe('ZenBridge Tests', () => {
       assert.strictEqual(resp.choices[0].message.content, 'Response from mimo-v2.5-free');
       assert.strictEqual(resp.choices[0].message.reasoning_content, 'Step by step thought process');
     });
+
+    it('records failure on upstream error payload and auto-failovers in auto mode', async () => {
+      const customOpenCodeService = {
+        baseUrl: `http://127.0.0.1:${mockOpenCodePort}`,
+        fetchProvidersAndModels: async () => [
+          { id: 'failing-model-free', name: 'Failing Model', provider: 'OpenCode', providerID: 'opencode', cost: 0 },
+          { id: 'working-model-free', name: 'Working Model', provider: 'OpenCode', providerID: 'opencode', cost: 0 },
+        ],
+        createSession: async () => 'ses_test',
+        sendMessage: async (_s: string, modelId: string) => {
+          if (modelId === 'failing-model-free') {
+            return new Response(JSON.stringify({ error: { message: 'Rate limit exceeded. Please try again later.' } }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          return new Response(JSON.stringify({ parts: [{ type: 'text', text: 'Hello from working model' }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        },
+      } as unknown as OpenCodeService;
+
+      const modelService = new ModelService(customOpenCodeService);
+      const chatService = new ChatService(customOpenCodeService, modelService, 'auto');
+
+      // 1. Direct request to failing model throws error and marks model as unhealthy/rate-limited
+      await assert.rejects(
+        async () => {
+          await chatService.completeChat({
+            model: 'failing-model-free',
+            messages: [{ role: 'user', content: 'Test failing model directly' }],
+          });
+        },
+        /Rate limit exceeded/
+      );
+
+      const failingInfo = modelService.getHealthInfo('failing-model-free');
+      assert.strictEqual(failingInfo.healthy, false);
+      assert.ok(failingInfo.error_message?.includes('Rate limit'));
+
+      // 2. Subsequent auto request automatically routes to healthy working model
+      const resp = await chatService.completeChat({
+        model: 'auto',
+        messages: [{ role: 'user', content: 'Test auto routing' }],
+      });
+
+      assert.strictEqual(resp.choices[0].message.content, 'Hello from working model');
+      assert.strictEqual(resp.model, 'working-model-free');
+    });
   });
 
   describe('HTTP REST API Endpoints Tests', () => {

@@ -220,6 +220,8 @@ export class ProxyServer {
         healthy: m.health?.healthy !== false,
         latency_ms: m.health?.latency_ms,
         last_checked: m.health?.last_checked,
+        error_message: m.health?.error_message,
+        consecutive_failures: m.health?.consecutive_failures,
       }));
 
       Router.sendJson(res, 200, {

@@ -36,7 +36,7 @@ export class ChatService {
     const isExistingSession = Boolean(request.session_id && request.session_id.trim());
     const includeReasoning = Boolean(request.include_reasoning || request.show_reasoning || request.reasoning);
     const variant = request.variant || request.reasoning_effort;
-
+    const isAuto = !request.model || request.model.trim().toLowerCase() === 'auto' || request.model.trim().toLowerCase() === 'random';
 
     const { parts, systemPrompt, promptText } = isExistingSession
       ? OpenAITransformer.formatLatestMessage(request.messages)
@@ -70,18 +70,44 @@ export class ChatService {
         workspace,
         request.agent?.trim()
       );
-      this.modelService.recordSuccess(modelInfo.id, Date.now() - startTime);
     } catch (err: any) {
       this.modelService.recordFailure(modelInfo.id, err.message);
-      const isAuto = !request.model || request.model.trim().toLowerCase() === 'auto' || request.model.trim().toLowerCase() === 'random';
       if (isAuto && retryAttempt < 2) {
         return this.completeChat(request, retryAttempt + 1);
       }
       throw err;
     }
 
-    const rawJson = await response.json();
+    let rawJson: any;
+    try {
+      rawJson = await response.json();
+    } catch (parseErr: any) {
+      this.modelService.recordFailure(modelInfo.id, 'Failed to parse JSON response from upstream');
+      if (isAuto && retryAttempt < 2) {
+        return this.completeChat(request, retryAttempt + 1);
+      }
+      throw new Error(`Invalid JSON response from upstream: ${parseErr.message}`);
+    }
+
+    if (rawJson?.error || rawJson?.type === 'error') {
+      const errMsg = rawJson?.error?.message || rawJson?.message || JSON.stringify(rawJson.error || rawJson);
+      this.modelService.recordFailure(modelInfo.id, errMsg);
+      if (isAuto && retryAttempt < 2) {
+        return this.completeChat(request, retryAttempt + 1);
+      }
+      throw new Error(`Model '${modelInfo.id}' error: ${errMsg}`);
+    }
+
     const { content, reasoningContent } = OpenAITransformer.extractResponsePayload(rawJson);
+
+    if (!content && !reasoningContent) {
+      this.modelService.recordFailure(modelInfo.id, 'Empty response from model');
+      if (isAuto && retryAttempt < 2) {
+        return this.completeChat(request, retryAttempt + 1);
+      }
+    } else {
+      this.modelService.recordSuccess(modelInfo.id, Date.now() - startTime);
+    }
 
     return OpenAITransformer.createCompletionResponse(
       content,
@@ -105,6 +131,7 @@ export class ChatService {
     const directory = request.directory?.trim();
     const workspace = request.workspace?.trim();
     const permissions = this.resolvePermissions(request);
+    const isAuto = !request.model || request.model.trim().toLowerCase() === 'auto' || request.model.trim().toLowerCase() === 'random';
 
     const { parts, systemPrompt } = isExistingSession
       ? OpenAITransformer.formatLatestMessage(request.messages)
@@ -121,9 +148,6 @@ export class ChatService {
           permissions
         );
 
-    // Yield initial role chunk immediately per OpenAI streaming specification
-    yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, undefined, 'assistant');
-
     const startTime = Date.now();
     let response: Response;
     try {
@@ -138,7 +162,6 @@ export class ChatService {
         workspace,
         request.agent?.trim()
       );
-      this.modelService.recordSuccess(modelInfo.id, Date.now() - startTime);
     } catch (err: any) {
       this.modelService.recordFailure(modelInfo.id, err.message);
       if (isAuto && retryAttempt < 2) {
@@ -152,11 +175,13 @@ export class ChatService {
 
     const contentType = response.headers?.get('content-type') || '';
     const isSSE = contentType.includes('text/event-stream');
+    let emittedAnyContent = false;
 
     if (isSSE && response.body && typeof response.body.getReader === 'function') {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let lineBuffer = '';
+      let initialRoleEmitted = false;
 
       try {
         while (true) {
@@ -176,16 +201,40 @@ export class ChatService {
               if (dataStr === '[DONE]') continue;
               try {
                 const parsed = JSON.parse(dataStr);
+                if (parsed.error || parsed.type === 'error') {
+                  const errorMsg = parsed.error?.message || parsed.message || JSON.stringify(parsed);
+                  this.modelService.recordFailure(modelInfo.id, errorMsg);
+                  if (!emittedAnyContent && isAuto && retryAttempt < 2) {
+                    yield* this.streamChat(request, retryAttempt + 1);
+                    return;
+                  }
+                  yield OpenAITransformer.formatStreamChunk(`\n[ZenBridge Error: ${errorMsg}]`, modelInfo.id, completionId, 'stop', sessionId);
+                  yield 'data: [DONE]\n\n';
+                  return;
+                }
+
                 const { content: deltaContent, reasoningContent: deltaReasoning } =
                   OpenAITransformer.extractResponsePayload(parsed);
 
+                if (!initialRoleEmitted && (deltaContent || deltaReasoning)) {
+                  yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, undefined, 'assistant');
+                  initialRoleEmitted = true;
+                }
+
                 if (includeReasoning && deltaReasoning) {
+                  emittedAnyContent = true;
                   yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, deltaReasoning);
                 }
                 if (deltaContent) {
+                  emittedAnyContent = true;
                   yield OpenAITransformer.formatStreamChunk(deltaContent, modelInfo.id, completionId, null, sessionId);
                 }
               } catch {
+                if (!initialRoleEmitted) {
+                  yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, undefined, 'assistant');
+                  initialRoleEmitted = true;
+                }
+                emittedAnyContent = true;
                 yield OpenAITransformer.formatStreamChunk(dataStr, modelInfo.id, completionId, null, sessionId);
               }
             }
@@ -198,19 +247,41 @@ export class ChatService {
           if (dataStr && dataStr !== '[DONE]') {
             try {
               const parsed = JSON.parse(dataStr);
-              const { content: deltaContent, reasoningContent: deltaReasoning } =
-                OpenAITransformer.extractResponsePayload(parsed);
-              if (includeReasoning && deltaReasoning) {
-                yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, deltaReasoning);
-              }
-              if (deltaContent) {
-                yield OpenAITransformer.formatStreamChunk(deltaContent, modelInfo.id, completionId, null, sessionId);
+              if (parsed.error || parsed.type === 'error') {
+                const errorMsg = parsed.error?.message || parsed.message || JSON.stringify(parsed);
+                this.modelService.recordFailure(modelInfo.id, errorMsg);
+              } else {
+                const { content: deltaContent, reasoningContent: deltaReasoning } =
+                  OpenAITransformer.extractResponsePayload(parsed);
+                if (includeReasoning && deltaReasoning) {
+                  emittedAnyContent = true;
+                  yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, deltaReasoning);
+                }
+                if (deltaContent) {
+                  emittedAnyContent = true;
+                  yield OpenAITransformer.formatStreamChunk(deltaContent, modelInfo.id, completionId, null, sessionId);
+                }
               }
             } catch { /* ignore malformed tail */ }
           }
         }
+
+        if (emittedAnyContent) {
+          this.modelService.recordSuccess(modelInfo.id, Date.now() - startTime);
+        } else {
+          this.modelService.recordFailure(modelInfo.id, 'Stream ended with no content');
+          if (isAuto && retryAttempt < 2) {
+            yield* this.streamChat(request, retryAttempt + 1);
+            return;
+          }
+        }
       } catch (streamErr: any) {
         this.modelService.recordFailure(modelInfo.id, streamErr.message);
+        if (!emittedAnyContent && isAuto && retryAttempt < 2) {
+          yield* this.streamChat(request, retryAttempt + 1);
+          return;
+        }
+        yield OpenAITransformer.formatStreamChunk(`\n[ZenBridge Stream Error: ${streamErr.message}]`, modelInfo.id, completionId, 'stop', sessionId);
       }
     } else {
       let rawJson: any;
@@ -225,7 +296,31 @@ export class ChatService {
         }
       }
 
+      if (rawJson?.error || rawJson?.type === 'error') {
+        const errorMsg = rawJson?.error?.message || rawJson?.message || JSON.stringify(rawJson);
+        this.modelService.recordFailure(modelInfo.id, errorMsg);
+        if (isAuto && retryAttempt < 2) {
+          yield* this.streamChat(request, retryAttempt + 1);
+          return;
+        }
+        yield OpenAITransformer.formatStreamChunk(`\n[ZenBridge Error: ${errorMsg}]`, modelInfo.id, completionId, 'stop', sessionId);
+        yield 'data: [DONE]\n\n';
+        return;
+      }
+
       const { content: fullText, reasoningContent } = OpenAITransformer.extractResponsePayload(rawJson);
+
+      if (!fullText && !reasoningContent) {
+        this.modelService.recordFailure(modelInfo.id, 'Empty response from model');
+        if (isAuto && retryAttempt < 2) {
+          yield* this.streamChat(request, retryAttempt + 1);
+          return;
+        }
+      } else {
+        this.modelService.recordSuccess(modelInfo.id, Date.now() - startTime);
+      }
+
+      yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, undefined, 'assistant');
 
       if (includeReasoning && reasoningContent) {
         yield OpenAITransformer.formatStreamChunk('', modelInfo.id, completionId, null, sessionId, reasoningContent);

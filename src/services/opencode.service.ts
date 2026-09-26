@@ -171,14 +171,23 @@ export class OpenCodeService {
     const targetUrl = this.buildUrl(`/session/${encodeURIComponent(sessionId)}/message`, { directory, workspace });
 
     let res: Response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
+
+    if (signal) {
+      signal.addEventListener('abort', () => controller.abort());
+    }
+
     try {
       res = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal,
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
     } catch (err: any) {
+      clearTimeout(timeout);
       if (err.name === 'AbortError' || err.name === 'TimeoutError') {
         throw new Error(`Model '${modelInfo.id}' timed out after waiting for upstream OpenCode response.`);
       }
